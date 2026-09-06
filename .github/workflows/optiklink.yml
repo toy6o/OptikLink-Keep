@@ -1,0 +1,68 @@
+name: 🎮 OptikLink-Keep
+
+on:
+  schedule:
+    - cron: '0 1 */2 * *'
+  workflow_dispatch:
+
+jobs:
+  keepalive:
+    name: 🔄 执行保活
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: 📥 拉取私库代码
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/OptikLink-Keep-Private
+          token: ${{ secrets.PRIVATE_REPO_TOKEN }}
+
+      - name: 🐍 安装 Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: 📦 安装依赖
+        run: |
+          python -m pip install --upgrade -r requirements.txt
+          sudo apt-get update && sudo apt-get install -y xvfb
+          sudo $(which playwright) install-deps firefox || true
+          python -m camoufox fetch
+
+      - name: 💾 缓存 Camoufox
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/camoufox
+          key: camoufox-${{ runner.os }}
+
+      - name: 🖥️ 启动 Xvfb
+        run: |
+          Xvfb :99 -screen 0 1280x720x24 -ac +extension GLX +render -noreset > /dev/null 2>&1 &
+          sleep 2
+          echo "DISPLAY=:99" >> $GITHUB_ENV
+
+      - name: 🛡️ 下载 GOST
+        run: |
+          VERSION=$(curl -s https://api.github.com/repos/ginuerzh/gost/releases/latest \
+            | grep '"tag_name"' | cut -d'"' -f4 | tr -d 'v')
+          echo "📦 GOST 版本: $VERSION"
+          wget -q "https://github.com/ginuerzh/gost/releases/download/v${VERSION}/gost_${VERSION}_linux_amd64.tar.gz"
+          tar -xzf "gost_${VERSION}_linux_amd64.tar.gz"
+          chmod +x gost
+          echo "✅ GOST 下载完成"
+
+      - name: 🚀 运行保活脚本
+        env:
+          DISCORD_ACCOUNT: ${{ secrets.DISCORD_ACCOUNT }}
+          TG_BOT:          ${{ secrets.TG_BOT }}
+          GOST_BIN:        ./gost
+          DISPLAY:         :99
+        run: python3 optiklink_renew.py
+
+      - name: 📸 上传失败截图
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: failure-screenshots
+          path: '*.png'
+          retention-days: 7
